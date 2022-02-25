@@ -2,10 +2,31 @@ exception Not_implemented
 
 type 'a tree = Leaf of 'a | Node of 'a tree * 'a * 'a tree
 
-let rec sum _ = raise Not_implemented
-let rec fib _ = raise Not_implemented
-let rec gcd _ _ = raise Not_implemented
-let rec combi _ _ = raise Not_implemented
+let rec sum n =
+  match n with
+    1 -> 1
+  | _ -> n + sum (n - 1)
+;;
+
+let rec fib n =
+  match n with
+    0 | 1 -> 1
+  | _ -> fib (n - 1) + fib (n - 2)
+;;
+
+let rec gcd m n =
+  if (m == 0) then n
+  else if (n == 0) then m
+  else if (m > n) then gcd n (m - (m / n) * n)
+  else gcd m (n - (n / m) * m)
+;;
+
+let rec combi n k =
+  match k with
+    0 -> 1
+  | _ -> n * combi (n - 1) (k - 1) / k
+;;
+
 
 let rec sum_tree _ = raise Not_implemented
 let rec depth _ = raise Not_implemented
