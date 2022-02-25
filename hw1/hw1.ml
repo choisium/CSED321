@@ -56,10 +56,36 @@ let rec inorder tree =
 ;;
 
 
-let rec max _ = raise Not_implemented
-let rec list_add _ _ = raise Not_implemented
-let rec insert _ _ = raise Not_implemented
-let rec insort _ = raise Not_implemented
+let rec max list =
+  match list with
+    [] -> 0
+  | first :: rest ->
+      if first > max rest then first
+      else max rest
+;;
+
+let rec list_add list1 list2 =
+  match (list1, list2) with
+    ([], _) -> list2
+  | (_, []) -> list1
+  | (first1 :: rest1, first2 :: rest2) ->
+      first1 + first2 :: list_add rest1 rest2
+;;
+
+let rec insert m list =
+  match list with
+    [] -> [m]
+  | first :: rest ->
+      if m < first then m :: list
+      else first :: insert m rest
+;;
+
+let rec insort l =
+  match l with
+    [] -> []
+  | first :: rest -> insert first (insort rest)
+;;
+
 
 let rec compose _ _ = raise Not_implemented
 let rec merge _ _ = raise Not_implemented
