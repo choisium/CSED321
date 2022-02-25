@@ -28,10 +28,33 @@ let rec combi n k =
 ;;
 
 
-let rec sum_tree _ = raise Not_implemented
-let rec depth _ = raise Not_implemented
-let rec bin_search _ _ = raise Not_implemented
-let rec inorder _ = raise Not_implemented
+let rec sum_tree tree =
+  match tree with
+    Leaf n -> n
+  | Node (left, n, right) -> sum_tree left + n + sum_tree right
+;;
+
+let rec depth tree =
+  match tree with
+    Leaf _ -> 0
+  | Node (left, _, right) ->
+      if depth left > depth right then depth left + 1
+      else depth right + 1
+;;
+
+let rec bin_search tree x =
+  match tree with
+    Leaf n -> n == x
+  | Node (left, n, right) ->
+      n == x || bin_search left x || bin_search right x
+;;
+
+let rec inorder tree =
+  match tree with
+    Leaf n -> [n]
+  | Node (left, n, right) -> inorder left @ [n] @ inorder right
+;;
+
 
 let rec max _ = raise Not_implemented
 let rec list_add _ _ = raise Not_implemented
