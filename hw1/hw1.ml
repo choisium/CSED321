@@ -96,12 +96,61 @@ let rec multifun f n =
            else (multifun f (n-1)) (f x)
 ;;
 
-let rec ltake _ _ = raise Not_implemented
-let rec lall _ _ = raise Not_implemented
-let rec lmap _ _ = raise Not_implemented
-let rec lrev _ = raise Not_implemented
-let rec lflat _ = raise Not_implemented
-let rec lzip _ _ = raise Not_implemented
-let rec split _ = raise Not_implemented
-let rec cartprod _ _ = raise Not_implemented
+
+let rec ltake l n =
+  if n <= 0 then []
+  else
+    match l with
+      [] -> []
+    | first :: rest -> first :: (ltake rest (n-1))
+;;
+
+let rec lall f l =
+  match l with
+    [] -> true
+  | first :: rest -> f first && lall f rest
+;;
+(* let rec lall f l = List.fold_left(fun accum elem -> f elem && accum) true l *)
+
+let rec lmap f l =
+  match l with
+    [] -> []
+  | first :: rest -> f first :: lmap f rest
+;;
+(* let rec lmap f l = List.fold_right(fun elem accum -> f elem :: accum) l [] *)
+
+let rec lrev l =
+  match l with
+    [] -> []
+  | first :: rest -> lrev rest @ [first]
+;;
+(* let rec lrev l = List.fold_left(fun accum elem -> elem :: accum) [] l *)
+
+let rec lflat l =
+  match l with
+    [] -> []
+  | first :: rest -> first @ lflat rest
+;;
+(* let rec lflat l = List.fold_right(fun elem accum -> elem @ accum) l [] *)
+
+let rec lzip l1 l2 =
+  match (l1, l2) with
+    ([], _) -> []
+  | (_, []) -> []
+  | (first1 :: rest1, first2 :: rest2) -> (first1, first2) :: lzip rest1 rest2
+;;
+
+let rec split l =
+  match l with
+    [] -> ([], [])
+  | [x] -> ([x], [])
+  | first :: second :: rest ->
+      match split rest with (l1, l2) -> (first :: l1, second :: l2)
+;;
+
+let rec cartprod l1 l2 =
+  match l1 with
+    [] -> []
+  | first :: rest -> lmap (fun x -> (first, x)) l2 @ cartprod rest l2
+;;
 
