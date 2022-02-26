@@ -87,11 +87,14 @@ let rec insort l =
 ;;
 
 
-let rec compose _ _ = raise Not_implemented
-let rec merge _ _ = raise Not_implemented
-let rec curry _ _ _ = raise Not_implemented 
-let rec uncurry _ _ = raise Not_implemented
-let rec multifun _ _ = raise Not_implemented
+let rec compose f g = fun x -> g (f x)
+let rec merge f g = fun (x, y) -> (f x, g y)
+let rec curry f x y = f (x, y)
+let rec uncurry f (x, y) = f x y
+let rec multifun f n =
+  fun x -> if n == 1 then f x
+           else (multifun f (n-1)) (f x)
+;;
 
 let rec ltake _ _ = raise Not_implemented
 let rec lall _ _ = raise Not_implemented
