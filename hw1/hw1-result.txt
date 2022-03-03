@@ -1,0 +1,29 @@
+choisium
+- sum : passed
+- fib : passed
+- gcd : passed
+- combi : passed
+- sum_tree : passed
+- depth : passed
+- bin_search : passed
+- inorder : passed
+- max 
+Failed: [-10; -100; -20; ]
+
+- list_add : passed
+- insert : passed
+- insort : passed
+- compose : passed
+- merge : passed
+- curry : passed
+- uncurry : passed
+- multifun : passed
+- ltake : passed
+- lall : passed
+- lmap : passed
+- lrev : passed
+- lflat : passed
+- lzip : passed
+- split : passed
+- cartprod : passed
+choisium: 96
