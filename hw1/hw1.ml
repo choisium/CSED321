@@ -56,12 +56,23 @@ let rec inorder tree =
 ;;
 
 
-let rec max list =
+(* let rec max list =
   match list with
     [] -> 0
   | first :: rest ->
       if first > max rest then first
       else max rest
+;; *)
+
+(* Revised version of max. accept negative lists, e.g. [-10; -100; -20] *)
+let rec max list =
+  match list with
+    [] -> 0
+  | first :: rest ->
+      let max_rest = max rest in
+      if first > max_rest then first
+      else if max_rest == 0 then first
+      else max_rest
 ;;
 
 let rec list_add list1 list2 =
