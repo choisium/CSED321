@@ -201,8 +201,10 @@ module DictFun : DICT with type key = string =
     type key = string
     type 'a dict = key -> 'a option
 			     
-    let empty _ = raise NotImplemented
-    let lookup _ _ = raise NotImplemented
-    let delete _ _ = raise NotImplemented
-    let insert _ _ = raise NotImplemented
+    let empty _ = fun _ -> None
+    let lookup d k = d k
+    let delete d k = fun key -> if key = k then None
+                                else d key
+    let insert d (k, v) = fun key -> if key = k then Some v
+                                     else d key
   end
