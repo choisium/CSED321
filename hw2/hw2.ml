@@ -19,23 +19,80 @@ let rec lfoldl f e l =
 			 
 (** Tail recursive functions  **)
 
-let fact _ = raise NotImplemented
+let fact n =
+  let rec fact_aux i acc =
+    match i with
+      0 -> acc
+    | _ -> fact_aux (i - 1) (acc * i)
+  in fact_aux n 1
+;;
 
-let fib _ = raise NotImplemented
+let fib n =
+  let rec fib_aux i fib_i_1 fib_i_2 =
+    if (i = n) then fib_i_1 + fib_i_2
+    else fib_aux (i + 1) (fib_i_1 + fib_i_2) fib_i_1
+  in
+    if (n = 0 || n = 1) then 1
+    else fib_aux 2 1 1
+;;
 
-let alterSum _ = raise NotImplemented
+let alterSum l =
+  let rec alterSum_aux is_add l_sub accum =
+    match l_sub with
+      [] -> accum
+    | head :: tail -> alterSum_aux (not is_add) tail
+                                   (if is_add then accum + head else accum - head)
+  in alterSum_aux true l 0
+;;
 
-let ltabulate _ _ = raise NotImplemented
+let ltabulate n f =
+  let rec ltabulate_aux i accum =
+    match i with
+      0 -> accum
+    | _ -> ltabulate_aux (i - 1) (f (i - 1) :: accum)
+  in ltabulate_aux n []
+;;
 
-let lfilter _ _ = raise NotImplemented
+let lfilter p l =
+  let rec lfilter_aux l_sub accum =
+    match l_sub with
+      [] -> accum
+    | head :: tail ->
+        if (p head) then lfilter_aux tail (accum @ [head])
+        else lfilter_aux tail accum
+  in lfilter_aux l []
+;;
 
-let union _ _ = raise NotImplemented
+let rec union s t =
+  match (s, t) with
+    ([], _) -> t
+  | (_, []) -> s
+  | (head :: tail, _) -> union tail (head :: (lfilter (fun elem -> elem <> head) t))
+;;
 
-let inorder _ = raise NotImplemented 
+let inorder t =
+  let rec inorder_aux t_sub post =
+    match t_sub with
+      Leaf n -> n :: post
+    | Node (l, n, r) -> inorder_aux l (inorder_aux (Leaf n) (inorder_aux r post))
+  in inorder_aux t []
+;;
 	   
-let postorder _ = raise NotImplemented
+let postorder t =
+  let rec postorder_aux t_sub post =
+    match t_sub with
+      Leaf n -> n :: post
+    | Node (l, n, r) -> postorder_aux l (postorder_aux r (postorder_aux (Leaf n) post))
+  in postorder_aux t []
+;;
 
-let preorder _ = raise NotImplemented    
+let preorder t =
+  let rec preorder_aux t_sub post =
+    match t_sub with
+      Leaf n -> n :: post
+    | Node (l, n, r) -> preorder_aux (Leaf n) (preorder_aux l (preorder_aux r post))
+  in preorder_aux t []
+;;
 		       
 (** Sorting in the ascending order **)
 
