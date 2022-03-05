@@ -96,9 +96,41 @@ let preorder t =
 		       
 (** Sorting in the ascending order **)
 
-let rec quicksort _ = raise NotImplemented
+let rec quicksort l =
+  match l with
+    [] -> []
+  | head :: tail -> quicksort (lfilter (fun elem -> elem < head) tail)
+                              @ [head]
+                              @ quicksort (lfilter (fun elem -> elem > head) tail)
+;;
 
-let rec mergesort _ = raise NotImplemented
+let rec mergesort l =
+  let merge_sorted left_sorted right_sorted =
+    let rec insert_asc elem list =
+      match list with
+        [] -> [elem]
+      | head :: tail -> if (elem < head) then elem :: list
+                        else head :: (insert_asc elem tail)
+    in lfoldl (fun (elem, accum) -> insert_asc elem accum) left_sorted right_sorted
+  in
+  let divide list =
+    let rec divide_aux is_left l_sub (left, right) =
+      match l_sub with
+        [] -> (left, right)
+      | head :: tail -> divide_aux (not is_left) tail
+                                   (if is_left then (head :: left, right)
+                                    else (left, head :: right))
+    in divide_aux true list ([], [])
+  in
+  let rec merge (left, right) =
+    match (left, right) with
+      ([], _) -> right
+    | (_, []) -> left
+    | _ -> (let left_sorted = merge (divide left) in
+            let right_sorted = merge (divide right) in
+            merge_sorted left_sorted right_sorted)
+  in merge (divide l)
+;;
 			
 (** Structures **)
 
