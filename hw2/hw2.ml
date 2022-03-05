@@ -186,10 +186,14 @@ module DictList : DICT with type key = string =
     type key = string
     type 'a dict = (key * 'a) list
 			      
-    let empty _ = raise NotImplemented
-    let lookup _ _ = raise NotImplemented
-    let delete _ _ = raise NotImplemented 
-    let insert _ _ = raise NotImplemented
+    let empty _ = []
+    let lookup d k =
+      match (List.filter (fun (key, value) -> key = k) d) with
+        [] -> None
+      | (_, value) :: _ -> Some value
+    ;;
+    let delete d k = List.filter (fun (key, value) -> key <> k) d
+    let insert d (k, v) = (k, v) :: (delete d k)
   end
     
 module DictFun : DICT with type key = string =
