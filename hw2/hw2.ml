@@ -4,9 +4,18 @@ type 'a tree = Leaf of 'a | Node of 'a tree * 'a * 'a tree
 						      
 (** Recursive functions **)
 
-let rec lrevrev _ = raise NotImplemented 
+let rec lrevrev l =
+  match l with
+    [] -> []
+  | head :: tail -> lrevrev tail @ [head]
+;;
+(* let rec lrevrev l = List.fold_left (fun accum elem -> elem :: accum) [] l *)
 
-let rec lfoldl _ _ _ = raise NotImplemented					
+let rec lfoldl f e l =
+  match l with
+    [] -> e
+  | head :: tail -> lfoldl f (f (head, e)) tail
+;;
 			 
 (** Tail recursive functions  **)
 
