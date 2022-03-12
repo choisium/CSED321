@@ -5,11 +5,15 @@ type 'a tree = Leaf of 'a | Node of 'a tree * 'a * 'a tree
 (** Recursive functions **)
 
 let rec lrevrev l =
+  let rec lrev l_sub =
+    match l_sub with
+      [] -> []
+    | head_sub :: tail_sub -> lrev tail_sub @ [head_sub]
+  in
   match l with
     [] -> []
-  | head :: tail -> lrevrev tail @ [head]
+  | head :: tail -> lrevrev tail @ [lrev head]
 ;;
-(* let rec lrevrev l = List.fold_left (fun accum elem -> elem :: accum) [] l *)
 
 let rec lfoldl f e l =
   match l with
