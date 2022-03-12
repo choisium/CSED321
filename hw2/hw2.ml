@@ -181,7 +181,7 @@ module Heap : HEAP =
       let rec update_aux h_sub =
         match h_sub with
           [] -> raise InvalidLocation
-        | (loc, value) :: tail -> if (loc == l) then (loc, v) :: tail else update_aux tail
+        | (loc, value) :: tail -> if (loc == l) then (loc, v) :: tail else (loc, value) :: (update_aux tail)
       in update_aux h
   end
     
