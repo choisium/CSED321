@@ -1,0 +1,25 @@
+choisium --- 
+- lrevrev 
+Failed: [[]; [1; 2; 3; ]; ]
+Failed: [[1; 2; 3; ]; []; ]
+Failed: [[1; 2; 3; ]; [6; 5; 4; ]; [9]; ]
+
+- lfoldl : passed
+- fact : passed
+- fib : passed
+- alterSum : passed
+- ltabulate : passed
+- lfilter : passed
+- union : passed
+- inorder : passed
+- postorder : passed
+- preorder : passed
+- quicksort : passed
+- mergesort : passed
+- Heap
+Failed: Unknown exception occurred during the test
+
+- DictList : passed
+- DictFun : passed
+
+choisium 85
