@@ -92,20 +92,74 @@ module MatrixFn (Scal : SCALAR) : MATRIX with type elem = Scal.t
 =
 struct
   type elem = Scal.t
-  type t = unit
+  type t = (elem list) list
 
   exception MatrixIllegal
 
-  let create _ = raise NotImplemented
-  let identity _ = raise NotImplemented
-  let dim _ = raise NotImplemented
-  let transpose _ = raise NotImplemented
-  let to_list _ = raise NotImplemented
-  let get _ _ _ = raise NotImplemented 
+  let create l =
+    match l with
+      [] -> raise MatrixIllegal
+    | _ -> if List.for_all (fun e -> (List.length e) = (List.length l)) l
+           then l
+           else raise MatrixIllegal
+  ;;
 
-  let (++) _ _ = raise NotImplemented
-  let ( ** ) _ _ = raise NotImplemented
-  let (==) _ _ = raise NotImplemented
+  let identity n =
+    let rec ith_row i j =
+      match j with
+        0 -> []
+      | _ -> (if (j = n - i + 1) then Scal.one else Scal.zero) :: (ith_row i (j - 1))
+    in
+    let rec identity_aux i accum =
+      match i with
+        0 -> accum
+      | _ -> identity_aux (i - 1) ((ith_row i n) :: accum)
+    in
+      if n <= 0 then raise MatrixIllegal
+      else identity_aux n []
+  ;;
+
+  let dim m = List.length m
+
+  let transpose m =
+    let rec empty_matrix n =
+      match n with
+        0 -> []
+      | _ -> [] :: empty_matrix (n - 1)
+    in
+    let transpose_aux m_sub accum =
+      if (dim m_sub) <> (dim accum) then raise MatrixIllegal
+      else List.fold_right2 (fun e1 e2 acc -> (e1 :: e2) :: acc) m_sub accum []
+    in
+      List.fold_right (fun m_sub accum -> transpose_aux m_sub accum) m (empty_matrix (dim m))
+  ;;
+
+  let to_list m = m
+
+  let get m r c =
+    if (r >= dim m || c >= dim m || r < 0 || c < 0) then raise MatrixIllegal
+    else List.nth (List.nth m r) c
+  ;;
+
+  module Vector = VectorFn (Scal)
+
+  let (++) x y =
+    if (dim x <> dim y) then raise MatrixIllegal
+    else List.map2 (fun e1 e2 -> Vector.to_list (Vector.(++) (Vector.create e1) (Vector.create e2))) x y
+  ;;
+
+  let rec ( ** ) x y =
+    if (dim x <> dim y) then raise MatrixIllegal
+    else
+      List.map (fun x_sub ->
+        List.map (fun y_sub -> Vector.innerp (Vector.create x_sub) (Vector.create y_sub)) (transpose y)
+      ) x
+  ;;
+
+  let rec (==) x y =
+    if (dim x) <> (dim y) then raise MatrixIllegal
+    else List.for_all2 (fun r1 r2 -> List.equal (fun e1 e2 -> Scal.(==) e1 e2) r1 r2) x y
+  ;;
 end
 
 (* Problem 2-1 *)
