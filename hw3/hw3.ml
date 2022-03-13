@@ -189,7 +189,11 @@ end
 module BoolMat = MatrixFn (Boolean)
 module BoolMatClosure = ClosureFn (BoolMat)
 
-let reach _ = raise NotImplemented
+let reach d =
+  if List.for_all (fun e -> (List.length e) = (List.length d)) d
+  then BoolMat.to_list(BoolMatClosure.closure (BoolMat.create d))
+  else raise IllegalFormat
+;;
 
 let al = 
   [[true;  false; false; false; false; false];
