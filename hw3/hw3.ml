@@ -158,7 +158,7 @@ struct
 
   let rec (==) x y =
     if (dim x) <> (dim y) then raise MatrixIllegal
-    else List.for_all2 (fun r1 r2 -> List.equal (fun e1 e2 -> Scal.(==) e1 e2) r1 r2) x y
+    else List.for_all2 (fun r1 r2 -> Vector.(==) (Vector.create r1) (Vector.create r2)) x y
   ;;
 end
 
