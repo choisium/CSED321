@@ -218,17 +218,36 @@ struct
 
   exception ScalarIllegal
 
-  let zero = 999999              (* Dummy value : Rewrite it! *)
-  let one = 999999               (* Dummy value : Rewrite it! *)
+  let zero = -1
+  let one = 0
 
-  let (++) _ _ = raise NotImplemented
-  let ( ** ) _ _ = raise NotImplemented
-  let (==) _ _ = raise NotImplemented
+  let (++) x y =
+    match (x, y) with
+      (-1, _) -> y
+    | (_, -1) -> x
+    | _ -> if (x < y) then x else y
+  ;;
+  let ( ** ) x y =
+    match (x, y) with
+      (-1, _) -> -1
+    | (_, -1) -> -1
+    | (0, _) -> y
+    | (_, 0) -> x
+    | _ -> x + y
+  ;;
+  let (==) x y = x = y
 end
 
 (* .. Write some code here .. *)
 
-let distance _ = raise NotImplemented
+module DistanceMat = MatrixFn (Distance)
+module DistanceMatClosure = ClosureFn (DistanceMat)
+
+let distance d =
+  if List.for_all (fun e -> (List.length e) = (List.length d)) d
+  then DistanceMat.to_list (DistanceMatClosure.closure (DistanceMat.create d))
+  else raise IllegalFormat
+;;
 
 let dl =
   [[  0;  -1;  -1;  -1;  -1;  -1 ];
