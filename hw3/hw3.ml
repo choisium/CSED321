@@ -32,9 +32,17 @@ struct
   let zero = false
   let one = true
 
-  let (++) x y = raise NotImplemented
-  let ( ** ) x y = raise NotImplemented
-  let (==) x y = raise NotImplemented
+  let (++) x y =
+    match (x, y) with
+      (false, false) -> false
+    | _ -> true
+  ;;
+  let ( ** ) x y =
+    match (x, y) with
+      (true, true) -> true
+    | _ -> false
+  ;;
+  let (==) x y = x = y
 end
 
 (* Problem 1-2 *)
