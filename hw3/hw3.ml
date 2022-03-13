@@ -272,17 +272,37 @@ struct
 
   exception ScalarIllegal
 
-  let zero = 999999              (* Dummy value : Rewrite it! *)
-  let one = 999999               (* Dummy value : Rewrite it! *)
+  let zero = 0
+  let one = -1
  
-  let (++) _ _ = raise NotImplemented
-  let ( ** ) _ _ = raise NotImplemented
-  let (==) _ _ = raise NotImplemented
+  let (++) x y =
+    match (x, y) with
+      (0, _) -> y
+    | (_, 0) -> x
+    | (-1, _) -> -1
+    | (_, -1) -> -1
+    | _ -> if (x < y) then y else x
+  ;;
+  let ( ** ) x y =
+    match (x, y) with
+      (0, _) -> 0
+    | (_, 0) -> 0
+    | (-1, _) -> y
+    | (_, -1) -> x
+    | _ -> if (x < y) then x else y
+  ;;
+  let (==) x y = x = y
 end
 
 (* .. Write some code here .. *)
+module WeightMat = MatrixFn (Weight)
+module WeightMatClosure = ClosureFn (WeightMat)
 
-let weight _ = raise NotImplemented
+let weight d =
+  if List.for_all (fun e -> (List.length e) = (List.length d)) d
+  then WeightMat.to_list (WeightMatClosure.closure (WeightMat.create d))
+  else raise IllegalFormat
+;;
 
 let ml =
   [[-1; 0  ; 0  ; 0  ; 0  ; 0   ];
