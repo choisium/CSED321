@@ -1,0 +1,42 @@
+- Boolean.(++) : passed
+- Boolean.( ** ) : passed
+- Boolean.(==) : passed
+BoolScore : 10
+- Vector.create : passed
+- Vector++ : passed
+- Vector.dim : passed
+- Vector.nth : passed
+- Vector.(==) : passed
+- Vector.innerp : passed
+VectorScore : 20
+- Matrix.create : passed
+- Matrix.identity : passed
+- Matrix.dim : passed
+- Matrix.transpose : passed
+- Matrix.get : passed
+- Matrix.++ : passed
+- Matrix.( ** ) : passed
+- Matrix.(==) : passed
+- Matrix.to_list : passed
+MatrixScore : 35
+- closure : passed
+ClosureScore : 10
+
+- reach 
+Failed: 
+[]
+ReachScore : 2
+
+- distance 
+Failed: 
+[]
+DistanceScore : 7
+
+- weight 
+Failed: 
+[]
+WeightScore : 7
+
+
+#####
+choisium: 91
