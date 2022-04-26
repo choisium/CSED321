@@ -3,8 +3,6 @@ exception NotImplemented
 exception Stuck
 exception NotConvertible
 
-module Environment = Map.Make(struct type t = index let compare = compare end)
-
 type stoval = 
     Computed of value 
   | Delayed of exp * env
@@ -18,14 +16,17 @@ type stoval =
    | Return_ST of (stoval Heap.heap) * stack * value 
 
  (* Define your own datatypes *)
- (* environment. it is a mapping from de brujin index to (location of heap, number of lambda binders) *)
- and env = Heap.loc Environment.t
+ (*
+  * environment. it is a list holding location of heap.
+  * The index of this list is considered as the de Brujin Index mapped with the location
+  *)
+ and env = Heap.loc list
  (* closed value *)
  and value =
     Closure_V of env * exp  (* [env, Lam e], [env, Fix e], [env, Pair (e1, e2)] *)
   | Eunit_V
-  | Inl_V of exp   (* does inl, inr need environment? *)
-  | Inr_V of exp
+  | Inl_V of env * exp
+  | Inr_V of env * exp
   | True_V
   | False_V
   | Num_V of int
@@ -34,25 +35,25 @@ type stoval =
   | Eq_V
  (* frame *)
  and frame =
-    App_FR of env * exp   (* []_env exp *)
-  | Fst_FR        (* fst []_env *)
-  | Snd_FR        (* snd []_env *)
+    App_FR of env * exp                 (* []_env exp *)
+  | Fst_FR                              (* fst []_env *)
+  | Snd_FR                              (* snd []_env *)
   | Case_FR of env * exp * exp          (* Case []_env of inl e1 | inr e2 *)
   | Ifthenelse_FR of env * exp * exp    (* if []_env then e1 else e2 *)
-  | Plus_FR    (* Plus [] *)
-  | Plus1_FR of env * exp           (* Plus ([], e) *)
-  | Plus2_FR of int           (* Plus (n, []) *)
-  | Minus_FR        (* Plus (n, []) *)
+  | Plus_FR                             (* Plus [] *)
+  | Plus1_FR of env * exp               (* Plus ([], e) *)
+  | Plus2_FR of int                     (* Plus (n, []) *)
+  | Minus_FR                            (* Plus (n, []) *)
   | Minus1_FR of env * exp
   | Minus2_FR of int
   | Eq_FR
   | Eq1_FR of env * exp
   | Eq2_FR of int
-  | Location_FR of int    (* [l_i] *)
+  | Location_FR of int                  (* [l_i] *)
 
 
 (* Define your own empty environment *)
-let emptyEnv = Environment.empty
+let emptyEnv = []
 
 (* Implement the function value2exp : value -> Tml.exp
  * Warning : If you give wrong implementation of this function,
@@ -272,25 +273,13 @@ let rec step1 e =
  * step2 : state -> state *)
 
 (*
- * val increase_idx : 'a Environment.t -> 'a Environment.t
- *
- * this increases index by one for all mapping in this environment
- * i.e. mappings of (i, l) -> mappings of (i + 1, l)
- * this is necessary for lambda application and fixed point combinator
- *)
-let increase_idx env =
-  let env_seq = Environment.to_seq env
-  in let env_seq_inc = Seq.map (fun (index, loc) -> (index + 1, loc)) env_seq
-  in Environment.of_seq env_seq_inc
-
-(*
  * val step2 : state -> state
  *)
 let step2 s =
   match s with
     (* Analyze phase *)
     Anal_ST (heap, stack, Ind n, env) -> (
-      match Environment.find_opt n env with
+      match List.nth_opt env n with
         None -> raise Stuck
       | Some l -> (
           match (Heap.deref heap l) with
@@ -313,9 +302,9 @@ let step2 s =
   | Anal_ST (heap, stack, Eunit, env) ->
       Return_ST (heap, stack, Eunit_V)
   | Anal_ST (heap, stack, Inl e, env) ->
-      Return_ST (heap, stack, Inl_V e)
+      Return_ST (heap, stack, Inl_V (env, e))
   | Anal_ST (heap, stack, Inr e, env) ->
-      Return_ST (heap, stack, Inr_V e)
+      Return_ST (heap, stack, Inr_V (env, e))
   | Anal_ST (heap, stack, Case (e, e1, e2), env) ->
       Anal_ST (heap, Frame_SK (stack, Case_FR(env, e1, e2)), e, env)
   | Anal_ST (heap, stack, Fix e, env) ->
@@ -343,8 +332,7 @@ let step2 s =
     (* Closure - Lambda abstraction *)
   | Return_ST (heap, Frame_SK(stack, App_FR (env_app, exp_app)), Closure_V (env_lam, Lam exp_lam)) ->
       let (heap', l) = Heap.allocate heap (Delayed (exp_app, env_app))
-      in let env_lam' = Environment.add 0 l (increase_idx env_lam)
-      in Anal_ST (heap', stack, exp_lam, env_lam')
+      in Anal_ST (heap', stack, exp_lam, l :: env_lam)
     (* Pair *)
   | Return_ST (heap, Frame_SK(stack, Fst_FR), Closure_V(env, Pair (e1, e2))) ->
       Anal_ST (heap, stack, e1, env)
@@ -352,19 +340,16 @@ let step2 s =
       Anal_ST (heap, stack, e2, env)
   | Return_ST (heap, stack, Eunit_V) -> raise Stuck
     (* Sum type *)
-  | Return_ST (heap, Frame_SK(stack, Case_FR (env, e1, e2)), Inl_V e) ->
-      let (heap', l) = Heap.allocate heap (Delayed (e, env))
-      in let env' = Environment.add 0 l env
-      in Anal_ST (heap', stack, e1, env')
-  | Return_ST (heap, Frame_SK(stack, Case_FR (env, e1, e2)), Inr_V e) ->
-      let (heap', l) = Heap.allocate heap (Delayed (e, env))
-      in let env' = Environment.add 0 l env
-      in Anal_ST (heap', stack, e2, env')
+  | Return_ST (heap, Frame_SK(stack, Case_FR (env_case, e1, e2)), Inl_V (env_inl, e)) ->
+      let (heap', l) = Heap.allocate heap (Delayed (e, env_inl))
+      in Anal_ST (heap', stack, e1, l :: env_case)
+  | Return_ST (heap, Frame_SK(stack, Case_FR (env_case, e1, e2)), Inr_V (env_inr, e)) ->
+      let (heap', l) = Heap.allocate heap (Delayed (e, env_inr))
+      in Anal_ST (heap', stack, e2, l :: env_case)
     (* Closure - Fixed point constructor *)
   | Return_ST (heap, stack, Closure_V (env, Fix e)) ->
       let (heap', l) = Heap.allocate heap (Delayed (Fix e, env))
-      in let env' = Environment.add 0 l (increase_idx env)    (* why 1 instead of 1? (fix x -> 0.e) |-> [fix x.e / x] e *)
-      in Anal_ST (heap', stack, e, env')
+      in Anal_ST (heap', stack, e, l :: env)
     (* True, False *)
   | Return_ST (heap, Frame_SK(stack, Ifthenelse_FR (env, e1, e2)), True_V) ->
       Anal_ST (heap, stack, e1, env)
@@ -448,8 +433,8 @@ let rec val2string v =
   | Closure_V (_, Pair (e1, e2)) -> "[env, (" ^ (exp2string e1) ^ ", " ^ (exp2string e2) ^ ")]"
   | Closure_V _ -> "Wrong Closure"
   | Eunit_V -> "()"
-  | Inl_V e -> "(inl. " ^ (exp2string e) ^ ")"
-  | Inr_V e -> "(inr. " ^ (exp2string e) ^ ")"
+  | Inl_V (_, e) -> "(inl. " ^ (exp2string e) ^ ")"
+  | Inr_V (_, e) -> "(inr. " ^ (exp2string e) ^ ")"
   | True_V -> "true"
   | False_V -> "false"
   | Num_V n -> "<" ^ (string_of_int n) ^ ">"
