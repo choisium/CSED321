@@ -69,130 +69,253 @@ let rec loc2str l = match l with
 (*
  * Generate code for Abstract Machine MACH 
  *)
-(* pat2code : Mach.label -> Mach.label - > loc -> Mono.pat -> Mach.code * venv *)
+let fail_label = labelNewStr ""
+
+(* pat2code : Mach.label -> Mach.label - > loc -> Mono.pat -> Mach.code * env *)
 let rec pat2code saddr faddr l pat = match pat with
-    P_INT i ->
+    P_WILD -> (code0, (venv0, 0))
+  | P_INT n -> (
       let (code, rvalue) = loc2rvalue l in
-      let code' = clist [JMPNEQ (ADDR (CADDR faddr), rvalue, INT i)]
+      let code' = cpost code [JMPNEQ (ADDR (CADDR faddr), rvalue, INT n)]
       in
-        (cpre [LABEL saddr] (code @@ code'), venv0)
-  | P_BOOL false ->
+        (cpre [LABEL saddr] code', (venv0, 0))
+    )
+  | P_BOOL true -> (
       let (code, rvalue) = loc2rvalue l in
-      let code' = clist [JMPTRUE (ADDR (CADDR faddr), rvalue)]
-      in
-        (cpre [LABEL saddr] (code @@ code'), venv0)
-  | P_BOOL true ->
-      let (code, rvalue) = loc2rvalue l in
-      let truelabel = labelNewLabel saddr "_TRUE" in
-      let code' = clist [
-        JMPTRUE (ADDR (CADDR truelabel), rvalue);
+      let label_true = labelNewLabel saddr "_TRUE" in
+      let code' = cpost code [
+        JMPTRUE (ADDR (CADDR label_true), rvalue);
         JUMP (ADDR (CADDR faddr));
-        LABEL truelabel;
+        LABEL label_true;
       ]
       in
-        (cpre [LABEL saddr] (code @@ code'), venv0)
-
-  | _ -> (cpre [LABEL saddr] code0, venv0)
+        (cpre [LABEL saddr] (code @@ code'), (venv0, 0))
+    )
+  | P_BOOL false -> (
+      let (code, rvalue) = loc2rvalue l in
+      let code' = cpost code [JMPTRUE (ADDR (CADDR faddr), rvalue)]
+      in
+        (cpre [LABEL saddr] (code @@ code'), (venv0, 0))
+    )
+  | P_VID (avid, VAR) -> (
+      let venv' = Dict.insert (avid, l) venv0
+      in
+        (code0, (venv', 1))
+    )
+  | P_VID (avid, CON) -> (
+      let (code, rvalue) = loc2rvalue l in
+      let code' = cpost code [JMPNEQSTR (ADDR (CADDR faddr), rvalue, STR avid)]
+      in
+        (code', (venv0, 0))
+    )
+  | P_VIDP ((avid, CONF), patty) -> (
+      let (code, rvalue) = loc2rvalue l in
+      let code' = cpost code [MOVE (LREG tr, rvalue); JMPNEQSTR (ADDR (CADDR faddr), REFREG (tr, 0), STR avid)] in
+      let (code'', environ) = patty2code saddr faddr (L_DREF (L_REG tr, 1)) patty
+      in
+        (code' @@ code'', environ)
+    )
+  | P_PAIR (patty1, patty2) -> (
+      (* let (code, rvalue) = loc2rvalue l in *)
+      let (code1, (venv1, count1)) = patty2code (labelNewLabel saddr "_FST") faddr (L_DREF (l, 0)) patty1 in
+      let (code2, (venv2, count2)) = patty2code (labelNewLabel saddr "_SND") faddr (L_DREF (l, 1)) patty2
+      in
+        (code1 @@ code2, (Dict.merge venv1 venv2, count1 + count2))
+    )
+  | _ -> (code0, (venv0, 0))
 
 (* patty2code : Mach.label -> Mach.label -> loc -> Mono.patty -> Mach.code * venv *)
-and patty2code saddr faddr l patty = match patty with
-    PATTY (P_VID (avid, VAR), _) ->
-      (cpre [LABEL saddr] code0, Dict.insert (avid, l) venv0)
-  | PATTY (pat, _) -> pat2code saddr faddr l pat
-
-(* exp2code : env -> Mach.label -> Mono.exp -> Mach.code * Mach.rvalue *)
-and exp2code environ saddr exp = match exp with
-    E_INT i -> (cpre [LABEL saddr] code0, INT i)
-  | E_BOOL b -> (cpre [LABEL saddr] code0, BOOL b)
-  | E_UNIT -> (cpre [LABEL saddr] code0, UNIT)
-  | _ -> (cpre [LABEL saddr] code0, INT 0)
-
-(* expty2code : env -> Mach.label -> Mono.expty -> Mach.code * Mach.rvalue *)
-and expty2code environ saddr expty = match expty with
-    EXPTY (_, T_UNIT) -> (cpre [LABEL saddr] code0, UNIT)   (* Optimization for unit *)
-  | EXPTY (E_VID (avid, VAR), _) -> (
-      let (venviron, count) = environ in
-      match Dict.lookup avid venviron with
-        None -> (clist [LABEL saddr; DEBUG (avid ^ " missing")], INT 0)
-      | Some l ->
-          let (code, rv) = loc2rvalue l in
-          (cpre [LABEL saddr] code, rv)
-    )
-  | EXPTY (E_FUN mlist, _) -> (
-      let saddr_fun = labelNewLabel saddr "E_FUN" in
-      let (code, faddr) = List.fold_left (fun (code_acc, saddr_acc) mrule ->
-        let faddr' = labelNewLabel saddr_fun "" in
-        let code_mrule = mrule2code environ saddr_acc faddr' mrule
-        in
-          (code_acc @@ code_mrule, faddr')
-      ) (code0, saddr_fun) mlist
-      in
-        (cpost code [LABEL faddr; EXCEPTION; LABEL saddr], ADDR (CADDR saddr_fun))
-    )
-  | EXPTY (E_APP (expty1, expty2), T_FUN _) -> (
-      let label1 = labelNewLabel saddr "E_APP1" in
-      let label2 = labelNewLabel saddr "E_APP2" in
-      let (code1, rvalue1) = expty2code environ label1 expty1 in
-      let (code2, rvalue2) = expty2code environ label2 expty2
-      in
-        match rvalue1 with
-          ADDR (CADDR addr_fun) ->
-            let label' = labelNewStr "E_APP_NEW"
-            in
-              (cpost (code1 @@ code2) [LABEL label'; PUSH rvalue2; CALL rvalue1; LABEL saddr], ADDR (CADDR label'))
-        | _ -> (clist [LABEL saddr; DEBUG "E_APP's expty1 is not E_FUN"], INT 0)
-    )
-  | EXPTY (E_APP (expty1, expty2), _) -> (
-      let label1 = labelNewLabel saddr "E_APP1" in
-      let (code1, rvalue1) = expty2code environ label1 expty1 in
-      let (code2, rvalue2) = expty2code environ saddr expty2
-      in
-        match rvalue1 with
-          ADDR (CADDR addr_fun) ->
-            (cpost (code1 @@ code2) [PUSH rvalue2; CALL rvalue1], REG ax)
-        | _ -> (clist [LABEL saddr; DEBUG "E_APP's expty1 is not E_FUN"], INT 0)
-    )
-  | EXPTY (E_LET (dec, expty'), _) -> (
-      let (code_d, env_d) = dec2code environ saddr dec in
-      let (code_et', rvalue_et') = expty2code env_d (labelNewLabel saddr "_LET_EXPTY") expty'
-        in (code_d @@ code_et', rvalue_et')
-    )
-  | EXPTY (exp, _) -> exp2code environ saddr exp
-
-(* dec2code : env -> Mach.label -> Mono.dec -> Mach.code * env *)
-and dec2code environ saddr dec = match dec with
-    D_VAL (patty, expty) ->
-      let (code_et, rvalue_et) = expty2code environ saddr expty in
-      let (code_pt, venv_pt) = patty2code
-                                      (labelNewLabel saddr "_PATTY_START")
-                                      (labelNewLabel saddr "_PATTY_FAIL")
-                                      (rvalue2loc rvalue_et)
-                                      patty in
-      let (venviron, count) = environ
-      in
-        (cpre [LABEL saddr] (code_et @@ code_pt), (Dict.merge venviron venv_pt, count + 1))
-  (* | D_REC (patty, expty) -> *)
-  (* | D_DTYPE ->  *)
-  | _ -> (cpre [LABEL saddr] code0, env0)
-
-(* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code *)
-and mrule2code environ saddr faddr (M_RULE (patty, expty)) =
-  let (venviron, count) = environ in
-  let (code_pt, venv_pt) = patty2code saddr faddr (L_DREF (L_REG bp, -3)) patty in
-  let venv' = Dict.merge venviron venv_pt in
-  let (code_et, rvalue_et) = expty2code (venv', count + 1) (labelNewLabel saddr "_EXPTY") expty
+and patty2code saddr faddr l patty =
+  let PATTY (pat, _) = patty
   in
-    cpost (code_pt @@ code_et) [MOVE (LREG ax, rvalue_et); RETURN]
+    pat2code saddr faddr l pat
+
+(* exp2code : env -> Mach.label -> Mono.exp -> Mach.code * Mach.code * Mach.rvalue *)
+and exp2code environ saddr exp =
+  let (venviron, count) = environ in
+  match exp with
+      E_INT n -> (code0, code0, INT n)
+    | E_BOOL b -> (code0, code0, BOOL b)
+    | E_UNIT -> (code0, code0, UNIT)
+    | E_VID (avid, VAR) -> (
+        match Dict.lookup avid venviron with
+          None -> (code0, clist [DEBUG (avid ^ " missing"); EXCEPTION], INT (-1))
+        | Some l ->
+            let (code, rvalue) = loc2rvalue l
+            in
+              (code0, code, rvalue)
+      )
+    | E_VID (avid, CON) -> (code0, code0, STR avid)
+    | E_VID (avid, CONF) -> (
+        let fn_code = clist [
+          LABEL saddr;
+          MALLOC (LREG ax, INT 2);
+          MOVE (LREFREG (ax, 0), STR avid);
+          MOVE (LREFREG (ax, 1), REFREG (bp, - 3));
+          RETURN
+        ]
+        in
+          (fn_code, code0, ADDR (CADDR saddr))
+      )
+    | E_FUN mlist -> (
+        let (fn_code, code, faddr) = List.fold_left (
+          fun (fn_code_acc, code_acc, saddr_acc) mrule ->
+            let faddr_mrule = labelNewLabel saddr "" in
+            let (fn_code_mrule, code_mrule) = mrule2code environ saddr_acc faddr_mrule mrule
+            in
+              (fn_code_acc @@ fn_code_mrule, code_acc @@ code_mrule, faddr_mrule)
+        ) (code0, code0, labelNewLabel saddr "_MLIST") mlist
+        in
+          (cpre [LABEL saddr] (code @@ fn_code), code0, ADDR (CADDR saddr))
+      )
+    | E_PAIR (expty1, expty2) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let code1' = cpost (clist [MALLOC (LREG bx, INT 2)] @@ code1) [MOVE (LREFREG (bx, 0), rvalue1)] in
+        let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
+        let code2' = cpost (code1' @@ code2) [MOVE (LREFREG (bx, 1), rvalue2); MOVE (LREG ax, REG bx)]
+        in
+          (fn_code1 @@ fn_code2, code2', REG ax)
+      )
+    | E_LET (dec, expty) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, environ') = dec2code environ saddr1 dec in
+        let (fn_code2, code2, rvalue) = expty2code environ' saddr2 expty
+        in
+          (fn_code1 @@ fn_code2, code1 @@ code2, rvalue)
+      )
+    | _ -> (code0, code0, INT (-1))
+
+(* expty2code : env -> Mach.label -> Mono.expty -> Mach.code * Mach.code * Mach.rvalue *)
+and expty2code environ saddr expty =
+  let (venviron, count) = environ in
+  match expty with
+      EXPTY(E_APP (EXPTY (E_PLUS, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
+        let code' = cpost (code1 @@ code2) [ADD (LREG ax, rvalue1, rvalue2)]
+        in
+          (fn_code1 @@ fn_code2, code', REG ax)
+      )
+    | EXPTY(E_APP (EXPTY (E_MINUS, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
+        let code' = cpost (code1 @@ code2) [SUB (LREG ax, rvalue1, rvalue2)]
+        in
+          (fn_code1 @@ fn_code2, code', REG ax)
+      )
+    | EXPTY(E_APP (EXPTY (E_MULT, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
+        let code' = cpost (code1 @@ code2) [MUL (LREG ax, rvalue1, rvalue2)]
+        in
+          (fn_code1 @@ fn_code2, code', REG ax)
+      )
+    | EXPTY(E_APP (EXPTY (E_EQ, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
+        let label_neq = labelNewLabel saddr "_NEQ" in
+        let label_final = labelNewLabel saddr "_FINAL" in
+        let code' = cpost (code1 @@ code2) [
+          JMPNEQ (ADDR (CADDR label_neq), rvalue1, rvalue2);
+          MOVE (LREG ax, BOOL true);
+          JUMP (ADDR (CADDR label_final));
+          LABEL label_neq;
+          MOVE (LREG ax, BOOL false);
+          LABEL label_final
+        ]
+        in
+          (fn_code1 @@ fn_code2, code', REG ax)
+      )
+    | EXPTY(E_APP (EXPTY (E_NEQ, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
+        let label_neq = labelNewLabel saddr "_NEQ" in
+        let label_final = labelNewLabel saddr "_FINAL" in
+        let code' = cpost (code1 @@ code2) [
+          JMPNEQ (ADDR (CADDR label_neq), rvalue1, rvalue2);
+          MOVE (LREG ax, BOOL false);
+          JUMP (ADDR (CADDR label_final));
+          LABEL label_neq;
+          MOVE (LREG ax, BOOL true);
+          LABEL label_final
+        ]
+        in
+          (fn_code1 @@ fn_code2, code', REG ax)
+      )
+    | EXPTY(E_APP (expty1, expty2), ty) -> (
+        let saddr1 = labelNewLabel saddr "_1" in
+        let saddr2 = labelNewLabel saddr "_2" in
+        let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
+        match ty with
+            T_FUN _ -> (
+              let code' = cpost (code1 @@ code2) [PUSH rvalue2; CALL rvalue1; POP (LREG tr); RETURN]
+              in
+                (fn_code1 @@ fn_code2 @@ (cpre [LABEL saddr] code'), code0, ADDR (CADDR saddr))
+            )
+          | _ -> (
+              let code' = cpost (code1 @@ code2) [PUSH rvalue2; CALL rvalue1; POP (LREG tr)]
+              in
+                (fn_code1 @@ fn_code2, cpre [LABEL saddr] code', REG ax)
+            )
+      )
+    | _ -> (
+        let EXPTY (exp, ty) = expty
+        in
+          exp2code environ saddr exp
+      )
+
+(* dec2code : env -> Mach.label -> Mono.dec -> Mach.code * Mach.code * env *)
+and dec2code environ saddr dec =
+  let (venv, count) = environ
+  in
+    match dec with
+      D_VAL (patty, expty) ->
+        let (fn_code1, code1, rvalue) = expty2code environ (labelNewLabel saddr "DECVALPAT_") expty in
+        let (code2, (venv2, count2)) = patty2code (labelNewLabel saddr "DECVALEXP") fail_label (rvalue2loc rvalue) patty
+        in
+          (fn_code1, code1 @@ code2, (Dict.merge venv venv2 , count + count2))
+    | _ -> (code0, code0, env0)
+
+(* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code * Mach.code *)
+and mrule2code environ saddr faddr (M_RULE (patty, expty)) =
+  let (venv, count) = environ in
+  let dref = Dict.fold (
+    fun acc (k, v) -> match v with
+      L_DREF (L_REG bp, n) -> if acc < n then acc else n
+    | _ -> acc
+  ) 0 venv in
+  let saddr2 = labelNewLabel saddr "_EXP" in
+  let (code1, (venv1, count1)) = patty2code saddr faddr (L_DREF (L_REG bp, dref - 3)) patty in
+  let environ' = (Dict.merge venv venv1, count + count1) in
+  let (fn_code, code2, rvalue) = expty2code environ' saddr2 expty in
+  let code' = match expty with
+    EXPTY (_, T_FUN _) -> cpost (code1 @@ code2) [JUMP (ADDR (CADDR saddr2))]
+  | _ -> cpost (code1 @@ code2) [MOVE (LREG ax, rvalue); RETURN]
+  in
+    (fn_code, cpre [LABEL saddr] code')
 
 (* program2code : Mono.program -> Mach.code *)
 and program2code (dlist, et) =
-  let (code_dl, env_dl, _) = List.fold_left (
-      fun (code_prev, env_prev, count) dec ->
-        let labelStr = "DEC" ^ (string_of_int count) in
-        let (code_curr, env_curr) = dec2code env_prev (labelNewStr labelStr) dec
-        in
-          ([DEBUG labelStr] @@ code_prev @@ code_curr, env_curr, count + 1)
-    ) (code0, env0, 0) dlist in
-  let (code_et, rvalue_et) = expty2code env_dl (start_label) et
+  let (fn_code1, code1, environ) = List.fold_left (
+    fun (fn_code_acc, code_acc, environ_acc) dec ->
+      let (fn_code_dec, code_dec, environ_dec) = dec2code environ_acc (labelNewStr "PRDEC_") dec
+      in
+        (fn_code_acc @@ fn_code_dec, code_acc @@ code_dec, environ_dec)
+  ) (code0, code0, env0) dlist in
+  let (fn_code2, code2, rvalue) = expty2code environ (labelNewStr "PREXP_") et
   in
-    code_dl @@ [DEBUG "RESULT"] @@ code_et @@ [HALT rvalue_et]
+    fn_code1 @@ fn_code2 @@ [LABEL start_label] @@ code1 @@ code2 @@ [HALT rvalue; LABEL fail_label; EXCEPTION]
