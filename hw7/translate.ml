@@ -104,16 +104,18 @@ let rec pat2code saddr faddr l pat = match pat with
     )
   | P_VID (avid, CON) -> (
       let (code, rvalue) = loc2rvalue l in
-      let code' = cpost code [JMPNEQSTR (ADDR (CADDR faddr), rvalue, STR avid)]
+      let venv' = Dict.insert (avid, l) venv0 in
+      let code' = cpost code [MOVE (LREG ax, rvalue); JMPNEQSTR (ADDR (CADDR faddr), REFREG (ax, 0), STR avid)]
       in
-        (code', (venv0, 0))
+        (code', (venv', 0))
     )
   | P_VIDP ((avid, CONF), patty) -> (
       let (code, rvalue) = loc2rvalue l in
-      let code' = cpost code [MOVE (LREG tr, rvalue); JMPNEQSTR (ADDR (CADDR faddr), REFREG (tr, 0), STR avid)] in
-      let (code'', environ) = patty2code saddr faddr (L_DREF (L_REG tr, 1)) patty
+      let venv' = Dict.insert (avid, l) venv0 in
+      let code' = cpost code [MOVE (LREG ax, rvalue); JMPNEQSTR (ADDR (CADDR faddr), REFREG (ax, 0), STR avid); MOVE (LREG ax, REFREG (ax, 1))] in
+      let (code'', (venv'', count'')) = patty2code saddr faddr (L_REG ax) patty
       in
-        (code' @@ code'', environ)
+        (code' @@ code'', (Dict.merge venv' venv'', count''))
     )
   | P_PAIR (patty1, patty2) -> (
       (* let (code, rvalue) = loc2rvalue l in *)
@@ -145,7 +147,7 @@ and exp2code environ saddr exp =
             in
               (code0, code, rvalue)
       )
-    | E_VID (avid, CON) -> (code0, code0, STR avid)
+    | E_VID (avid, CON) -> (code0, clist [MALLOC (LREG ax, INT 1); MOVE (LREFREG (ax, 0), STR avid)], REG ax)
     | E_VID (avid, CONF) -> (
         let fn_code = clist [
           LABEL saddr;
@@ -164,9 +166,10 @@ and exp2code environ saddr exp =
             let (fn_code_mrule, code_mrule) = mrule2code environ saddr_acc faddr_mrule mrule
             in
               (fn_code_acc @@ fn_code_mrule, code_acc @@ code_mrule, faddr_mrule)
-        ) (code0, code0, labelNewLabel saddr "_MLIST") mlist
+        ) (code0, code0, labelNewLabel saddr "_MLIST") mlist in
+        let code' = cpost code [LABEL faddr; EXCEPTION]
         in
-          (cpre [LABEL saddr] (code @@ fn_code), code0, ADDR (CADDR saddr))
+          (cpre [LABEL saddr] (code' @@ fn_code), code0, ADDR (CADDR saddr))
       )
     | E_PAIR (expty1, expty2) -> (
         let saddr1 = labelNewLabel saddr "_1" in
@@ -318,7 +321,7 @@ and mrule2code environ saddr faddr (M_RULE (patty, expty)) =
   let environ' = (Dict.merge venv venv1, count + count1) in
   let (fn_code, code2, rvalue) = expty2code environ' saddr2 expty in
   let code' = match expty with
-    EXPTY (_, T_FUN _) -> cpost (code1 @@ code2) [JUMP (ADDR (CADDR saddr2))]
+    EXPTY (_, T_FUN _) -> cpost (code1 @@ code2) [JUMP rvalue]
   | _ -> cpost (code1 @@ code2) [MOVE (LREG ax, rvalue); RETURN]
   in
     (fn_code, cpre [LABEL saddr] code')
