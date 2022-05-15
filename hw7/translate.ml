@@ -172,9 +172,14 @@ and exp2code environ saddr exp =
         let saddr1 = labelNewLabel saddr "_1" in
         let saddr2 = labelNewLabel saddr "_2" in
         let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
-        let code1' = cpost (clist [MALLOC (LREG bx, INT 2)] @@ code1) [MOVE (LREFREG (bx, 0), rvalue1)] in
+        let code1' = cpost code1 [PUSH rvalue1] in
         let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
-        let code2' = cpost (code1' @@ code2) [MOVE (LREFREG (bx, 1), rvalue2); MOVE (LREG ax, REG bx)]
+        let code2' = cpost (code1' @@ code2) [
+          MALLOC (LREG bx, INT 2);
+          MOVE (LREFREG (bx, 0), REFREG (sp, -1));
+          POP (LREG tr);
+          MOVE (LREFREG (bx, 1), rvalue2);
+          MOVE (LREG ax, REG bx)]
         in
           (fn_code1 @@ fn_code2, code2', REG ax)
       )
