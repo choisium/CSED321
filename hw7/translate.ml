@@ -196,28 +196,31 @@ and expty2code environ saddr expty =
         let saddr1 = labelNewLabel saddr "_1" in
         let saddr2 = labelNewLabel saddr "_2" in
         let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let code' = cpost code1 [PUSH rvalue1] in
         let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
-        let code' = cpost (code1 @@ code2) [ADD (LREG ax, rvalue1, rvalue2)]
+        let code'' = cpost (code' @@ code2) [ADD (LREG ax, REFREG (sp, -1), rvalue2); POP (LREG tr)]
         in
-          (fn_code1 @@ fn_code2, code', REG ax)
+          (fn_code1 @@ fn_code2, code'', REG ax)
       )
     | EXPTY(E_APP (EXPTY (E_MINUS, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
         let saddr1 = labelNewLabel saddr "_1" in
         let saddr2 = labelNewLabel saddr "_2" in
         let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let code' = cpost code1 [PUSH rvalue1] in
         let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
-        let code' = cpost (code1 @@ code2) [SUB (LREG ax, rvalue1, rvalue2)]
+        let code'' = cpost (code' @@ code2) [SUB (LREG ax, REFREG (sp, -1), rvalue2); POP (LREG tr)]
         in
-          (fn_code1 @@ fn_code2, code', REG ax)
+          (fn_code1 @@ fn_code2, code'', REG ax)
       )
     | EXPTY(E_APP (EXPTY (E_MULT, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
         let saddr1 = labelNewLabel saddr "_1" in
         let saddr2 = labelNewLabel saddr "_2" in
         let (fn_code1, code1, rvalue1) = expty2code environ saddr1 expty1 in
+        let code' = cpost code1 [PUSH rvalue1] in
         let (fn_code2, code2, rvalue2) = expty2code environ saddr2 expty2 in
-        let code' = cpost (code1 @@ code2) [MUL (LREG ax, rvalue1, rvalue2)]
+        let code'' = cpost (code' @@ code2) [MUL (LREG ax, REFREG (sp, -1), rvalue2); POP (LREG tr)]
         in
-          (fn_code1 @@ fn_code2, code', REG ax)
+          (fn_code1 @@ fn_code2, code'', REG ax)
       )
     | EXPTY(E_APP (EXPTY (E_EQ, _), EXPTY (E_PAIR (expty1, expty2), _)), _) -> (
         let saddr1 = labelNewLabel saddr "_1" in
