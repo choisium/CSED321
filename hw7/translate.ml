@@ -284,10 +284,17 @@ and dec2code environ saddr dec =
   in
     match dec with
       D_VAL (patty, expty) ->
-        let (fn_code1, code1, rvalue) = expty2code environ (labelNewLabel saddr "DECVALPAT_") expty in
-        let (code2, (venv2, count2)) = patty2code (labelNewLabel saddr "DECVALEXP") fail_label (rvalue2loc rvalue) patty
+        let (fn_code, code1, rvalue) = expty2code environ (labelNewLabel saddr "DECVALPAT_") expty in
+        let (code2, (venv2, count2)) = patty2code (labelNewLabel saddr "DECVALEXP_") fail_label (rvalue2loc rvalue) patty
         in
-          (fn_code1, code1 @@ code2, (Dict.merge venv venv2 , count + count2))
+          (fn_code, code1 @@ code2, (Dict.merge venv venv2 , count + count2))
+    | D_REC (patty, expty) ->
+        let label_fun = labelNewLabel saddr "DECRECEXP_" in
+        let (code1, (venv1, count1)) = patty2code (labelNewLabel saddr "DECRECPAT_") fail_label (L_ADDR (CADDR label_fun)) patty in
+        let environ' = (Dict.merge venv venv1, count + count1) in
+        let (fn_code, code2, rvalue) = expty2code environ' label_fun expty
+        in
+          (fn_code, code1 @@ code2, environ')
     | _ -> (code0, code0, env0)
 
 (* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code * Mach.code *)
