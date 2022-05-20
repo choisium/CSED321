@@ -70,7 +70,6 @@ let rec loc2str l = match l with
  * Generate code for Abstract Machine MACH 
  *)
 let fail_label = labelNewStr ""
-let reg_min = 5
 
 let find_free_vars expty =
   let rec find_bound_vars_in_patty patty bound_vars = (
@@ -79,52 +78,80 @@ let find_free_vars expty =
     | PATTY (P_VIDP ((_, CONF), patty'), _) -> find_bound_vars_in_patty patty' bound_vars
     | PATTY (P_PAIR (patty1, patty2), _) -> find_bound_vars_in_patty patty1 (find_bound_vars_in_patty patty2 bound_vars)
     | _ -> bound_vars
-  )
-  and find_free_vars_in_expty expty bound_vars free_vars = (
+  ) in
+  let rec find_free_vars_in_expty expty bound_vars free_vars = (
     let exists x vars = List.exists (fun elem -> elem = x) vars
     in
       match expty with
         EXPTY (E_VID (avid, VAR), _) -> if (exists avid bound_vars) || (exists avid free_vars) then free_vars else avid :: free_vars
-      | EXPTY (E_FUN mlist, _) -> find_free_vars_in_mlist bound_vars free_vars mlist
+      | EXPTY (E_FUN mlist, _) -> List.fold_left (fun acc (M_RULE (patty, expty)) ->
+          let bound_vars' = find_bound_vars_in_patty patty bound_vars
+          in
+            find_free_vars_in_expty expty bound_vars' acc
+        ) free_vars mlist
       | EXPTY (E_APP (expty1, expty2), _) -> find_free_vars_in_expty expty2 bound_vars (find_free_vars_in_expty expty1 bound_vars free_vars)
       | EXPTY (E_PAIR (expty1, expty2), _) -> find_free_vars_in_expty expty2 bound_vars (find_free_vars_in_expty expty1 bound_vars free_vars)
+      | EXPTY (E_LET (D_VAL (patty, expty1), expty2), _) -> (
+          let bound_vars' = find_bound_vars_in_patty patty bound_vars in
+          let free_vars' = find_free_vars_in_expty expty1 bound_vars' free_vars
+          in
+            find_free_vars_in_expty expty2 bound_vars' free_vars'
+        )
+      | EXPTY (E_LET (D_REC (patty, expty1), expty2), _) -> (
+          let bound_vars' = find_bound_vars_in_patty patty bound_vars in
+          let free_vars' = find_free_vars_in_expty expty1 bound_vars' free_vars
+          in
+            find_free_vars_in_expty expty2 bound_vars' free_vars'
+        )
       | _ -> free_vars
   )
-  and find_free_vars_in_mlist base_bound_vars base_free_vars mlist =
-    List.fold_left (fun acc (M_RULE (patty, expty)) ->
-      let bound_vars = find_bound_vars_in_patty patty base_bound_vars
-      in
-        find_free_vars_in_expty expty bound_vars acc
-    ) base_free_vars mlist
   in
-    match expty with
-      EXPTY(E_FUN mlist, _) -> find_free_vars_in_mlist [] [] mlist
-    | _ -> []
+    find_free_vars_in_expty expty [] []
+
+let find_constructors (dlist, et) =
+  let rec find_constructors_in_expty constructors (EXPTY (exp, _)) = (
+    let (cons, confs) = constructors
+    in
+      match exp with
+        E_VID (avid, CON) -> (
+          if (List.exists (fun elem -> elem = avid) cons)
+          then (cons, confs)
+          else (avid :: cons, confs)
+        )
+      | E_VID (avid, CONF) -> (
+          if (List.exists (fun elem -> elem = avid) confs)
+          then (cons, confs)
+          else (cons, avid :: confs)
+        )
+      | E_FUN mlist -> (
+          List.fold_left (fun constructors_acc (M_RULE (_, expty)) -> find_constructors_in_expty constructors_acc expty) constructors mlist
+        )
+      | E_APP (expty1, expty2) -> find_constructors_in_expty (find_constructors_in_expty constructors expty1) expty2
+      | E_PAIR (expty1, expty2) -> find_constructors_in_expty (find_constructors_in_expty constructors expty1) expty2
+      | E_LET (dec, expty) -> find_constructors_in_expty (find_constructors_in_dec constructors dec) expty
+      | _ -> constructors
+  )
+  and find_constructors_in_dec constructors dec = (
+    match dec with
+      D_VAL (_, expty) -> find_constructors_in_expty constructors expty
+    | D_REC (_, expty) -> find_constructors_in_expty constructors expty
+    | _ -> constructors
+  )
+  in
+    List.fold_left (fun constructors_acc dec -> find_constructors_in_dec constructors_acc dec) (find_constructors_in_expty ([], []) et) dlist
 
 (*  -> code * env *)
 let create_datatype_closures (dlist, et) =
-  let rec find_confs confs (EXPTY (exp, _)) = (
-    match exp with
-      E_VID (avid, CONF) -> (
-        if (List.exists (fun elem -> elem = avid) confs)
-        then confs
-        else avid :: confs
-      )
-    | E_FUN mlist -> (
-        List.fold_left (fun confs_acc (M_RULE (_, expty)) -> find_confs confs_acc expty) confs mlist
-      )
-    | E_APP (expty1, expty2) -> find_confs (find_confs confs expty1) expty2
-    | E_PAIR (expty1, expty2) -> find_confs (find_confs confs expty1) expty2
-    (* need to care E_LET case! *)
-    | _ -> confs
+  let create_con_closure (code, (venv, count)) con = (
+    let code' = clist [
+      MALLOC (LREG cx, INT 1);
+      MOVE (LREFREG (cx, 0), STR con);
+      PUSH (REG cx);
+    ]
+    in
+      (code @@ code', (Dict.insert (con, L_DREF (L_REG bx, count)) venv, count + 1))
   ) in
-  let find_confs_in_dec confs dec = (
-    match dec with
-      D_VAL (_, expty) -> find_confs confs expty
-    | D_REC (_, expty) -> find_confs confs expty
-    | _ -> confs
-  ) in
-  let create_closure (code, (venv, count)) conf = (
+  let create_conf_closure (code, (venv, count)) conf = (
     let label_start = labelNewStr ("_DT_" ^ conf ^ "_START") in
     let label_end = labelNewStr ("_DT_" ^ conf ^ "_END") in
     let code' = clist [
@@ -144,10 +171,75 @@ let create_datatype_closures (dlist, et) =
     in
       (code @@ code', (Dict.insert (conf, L_DREF (L_REG bx, count)) venv, count + 1))
   ) in
-  let confs = List.fold_left (fun confs_acc dec -> find_confs_in_dec confs_acc dec) (find_confs [] et) dlist
+  let (cons, confs) = find_constructors (dlist, et) in
+  let (code1, env1) = List.fold_left create_con_closure (code0, (venv0, 0)) cons
   in
-    List.fold_left create_closure (code0, (venv0, 0)) confs
+    List.fold_left create_conf_closure (code1, env1) confs
 
+let count_closures (dlist, et) =
+  let rec count_global_closures count dec = (
+    match dec with
+      D_VAL (PATTY (P_PAIR (patty1, patty2), _), EXPTY (E_PAIR (expty1, expty2), _)) ->
+        count_global_closures (count_global_closures count (D_VAL (patty1, expty1))) (D_VAL (patty2, expty2))
+    | D_VAL (_, EXPTY (E_FUN _, _)) -> count + 1
+    | D_VAL (_, EXPTY (E_APP (EXPTY (E_VID (avid, CONF), _), _), _)) -> count + 1
+    | D_VAL (_, EXPTY (E_PAIR _, _)) -> count + 1
+    | D_REC (_, EXPTY (E_FUN _, _)) -> count + 1
+    | _ -> count
+  ) in
+  let rec count_local_closures_in_expty count (EXPTY (exp, _)) = (
+    match exp with
+    | E_FUN mlist -> (
+        List.fold_left (fun count_acc (M_RULE (_, expty)) ->
+          let count_mrule = count_local_closures_in_expty count expty
+          in
+            if count_mrule > count_acc then count_mrule else count_acc
+          ) count mlist
+      )
+    | E_APP (expty1, expty2) -> (
+        let count1 = count_local_closures_in_expty count expty1 in
+        let count2 = count_local_closures_in_expty count expty2
+        in
+          if count1 > count2 then count1 else count2
+      )
+    | E_PAIR (expty1, expty2) -> (
+        let count1 = count_local_closures_in_expty count expty1 in
+        let count2 = count_local_closures_in_expty count expty2
+        in
+          if count1 > count2 then count1 else count2
+      )
+    | E_LET (dec, expty) -> (
+        let count1 = count_global_closures count dec
+        in
+          count_local_closures_in_expty count1 expty
+      )
+    | _ -> count
+  ) in
+  let count_local_closures_in_dec count dec = (
+    match dec with
+      D_VAL (PATTY (P_PAIR (patty1, patty2), _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
+        let count1 = count_local_closures_in_expty count expty1 in
+        let count2 = count_local_closures_in_expty count expty2
+        in
+          count1 + count2
+      )
+    | D_VAL (_, expty) -> count_local_closures_in_expty count expty
+    | D_REC (_, expty) -> count_local_closures_in_expty count expty
+    | _ -> count
+  ) in
+  (* let (cons, confs) = find_constructors (dlist, et) in *)
+  let count_global = List.fold_left count_global_closures 0 dlist in
+  let count_local = List.fold_left (fun count_acc dec -> 
+      let count_dec = count_local_closures_in_dec 0 dec
+      in
+        if count_dec > count_acc then count_dec else count_acc
+    ) (count_local_closures_in_expty 0 et) dlist
+  in
+    count_global + count_local
+
+let rec create_closure_space code n =
+  if n = 0 then code
+  else create_closure_space (cpost code [PUSH (INT 0)]) (n - 1)
 
 (* pat2code : Mach.label -> Mach.label - > loc -> Mono.pat -> Mach.code * env *)
 let rec pat2code saddr faddr l pat count = match pat with
@@ -180,7 +272,7 @@ let rec pat2code saddr faddr l pat count = match pat with
       in
         match l with
           L_REG cx -> (  (* when variable is pointing a closure *)
-            let code' = [PUSH (REG cx)] in
+            let code' = [MOVE (LREFREG (bx, count), REG cx)] in
             let venv' = Dict.insert (avid, L_DREF (L_REG bx, count)) venv0
             in
               (cpre [LABEL saddr] (code @@ code'), (venv', 1))
@@ -235,26 +327,32 @@ and exp2code environ saddr exp =
               (code, rvalue)
       )
     | E_VID (avid, CON) -> (
-        let code = clist [
+        match Dict.lookup avid venviron with
+          None -> (clist [DEBUG (avid ^ " missing(conf)"); EXCEPTION], INT (-1))
+        | Some l ->
+            let (code, rvalue) = loc2rvalue l
+            in
+              (code, rvalue)
+        (* let code = clist [
           MALLOC (LREG cx, INT 1);
           MOVE (LREFREG (cx, 0), STR avid);
         ]
         in
-          (code, REG cx)
+          (code, REG cx) *)
       )
     | E_VID (avid, CONF) -> (
         match Dict.lookup avid venviron with
-          None -> (clist [DEBUG (avid ^ " missing(dt)"); EXCEPTION], INT (-1))
+          None -> (clist [DEBUG (avid ^ " missing(conf)"); EXCEPTION], INT (-1))
         | Some l ->
             let (code, rvalue) = loc2rvalue l
             in
               (code, rvalue)
       )
     | E_PAIR (expty1, expty2) -> (
-        let saddr1 = labelNewLabel saddr "_1" in
-        let saddr2 = labelNewLabel saddr "_2" in
-        let (code1, rvalue1) = expty2code environ saddr1 expty1 in
-        let (code2, rvalue2) = expty2code environ saddr2 expty2 in
+        let label_start1 = labelNewLabel saddr "_1" in
+        let label_start2 = labelNewLabel saddr "_2" in
+        let (code1, rvalue1) = expty2code environ label_start1 expty1 in
+        let (code2, rvalue2) = expty2code environ label_start2 expty2 in
         let code_mid = clist [PUSH rvalue1] in
         let code_post = clist [
           PUSH rvalue2;
@@ -265,6 +363,14 @@ and exp2code environ saddr exp =
           POP (LREG tr);]
         in
           (code1 @@ code_mid @@ code2 @@ code_post, REG cx)
+      )
+    | E_LET (dec, expty) -> (
+        let label_start1 = labelNewLabel saddr "_LETDEC" in
+        let label_start2 = labelNewLabel saddr "_LETEXPTY" in
+        let (code1, environ1) = dec2code environ label_start1 dec in
+        let (code2, rvalue) = expty2code environ1 label_start2 expty
+        in
+          (code1 @@ code2, rvalue)
       )
     | _ -> (code0, INT (-1))
 
@@ -279,7 +385,7 @@ and expty2code environ saddr expty =
         let label_end = labelNewLabel saddr "_END" in
         (* get free variables *)
         let free_vars = find_free_vars expty in
-        let (code_free_vars, venv_free_vars, count) = (List.fold_left (fun (code_acc, venv_acc, index) free_var ->
+        let (code_free_vars, venv_free_vars, count_free_vars) = (List.fold_left (fun (code_acc, venv_acc, index) free_var ->
           let (code_free_var, venv_free_var) =
             match Dict.lookup free_var venv_acc with
               None -> ([DEBUG (free_var ^ " missing"); EXCEPTION], venv_acc)
@@ -298,7 +404,7 @@ and expty2code environ saddr expty =
         let code_pre = clist [
           JUMP (ADDR (CADDR label_end));
           LABEL label_start;
-          DEBUG ("free vars - " ^List.fold_left (fun acc elem -> acc ^", "^ elem) "" free_vars)
+          DEBUG ("free vars - " ^ List.fold_left (fun acc elem -> acc ^", "^ elem) "" free_vars)
         ] in
         let code_post = cpre [
           LABEL faddr_mlist; EXCEPTION;
@@ -421,16 +527,29 @@ and expty2code environ saddr expty =
         let label_start2 = labelNewLabel saddr "_START2" in
         let (code1, rvalue1) = expty2code environ label_start1 expty1 in
         let (code2, rvalue2) = expty2code environ label_start2 expty2 in
-        let code_post = clist [
+        let code_post = 
+          (* match rvalue1 with
+            REFREG (bx, 1) -> clist [
           PUSH (REG cp);
           PUSH rvalue2;
-          MOVE (LREG cp, rvalue1);
+          MOVE (LREG cp, REFREG (sp, -3));
+          HALT (REG cp);
+          POP (LREG tr);
+          POP (LREG cp);
+          POP (LREG tr);
+        ]
+          | _ -> *)
+          clist [
+          PUSH (REG cp);
+          PUSH rvalue2;
+          MOVE (LREG cp, REFREG (sp, -3));
           CALL (REFREG (cp, 0));
           POP (LREG tr);
           POP (LREG cp);
+          POP (LREG tr);
         ]
         in
-          (code1 @@ code2 @@ code_post, REG ax)
+          (code1 @@ (clist [PUSH rvalue1]) @@ code2 @@ code_post, REG ax)
       )
     | _ -> (
         let EXPTY (exp, ty) = expty
@@ -443,7 +562,12 @@ and dec2code environ saddr dec =
   let (venv, count) = environ
   in
     match dec with
-      D_VAL (patty, expty) ->
+      D_VAL (PATTY (P_PAIR (patty1, patty2), _), EXPTY (E_PAIR (expty1, expty2), _)) ->
+        let (code1, env1) = dec2code environ (labelNewLabel saddr "DECVALPAIR1_") (D_VAL (patty1, expty1)) in
+        let (code2, env2) = dec2code env1 (labelNewLabel saddr "DECVALPAIR2_") (D_VAL (patty2, expty2))
+        in
+          (code1 @@ code2, env2)
+    | D_VAL (patty, expty) ->
         let (code1, rvalue) = expty2code environ (labelNewLabel saddr "DECVALPAT_") expty in
         let (code2, (venv2, count2)) = patty2code (labelNewLabel saddr "DECVALEXP_") fail_label (rvalue2loc rvalue) patty count
         in
@@ -454,7 +578,7 @@ and dec2code environ saddr dec =
         let (code1, rvalue) = expty2code environ' (labelNewLabel saddr "DECRECEXP_") expty in
         let free_vars = List.mapi (fun i free_var -> (i, free_var)) (find_free_vars expty) in
         let (index, _) = List.find (fun (i, free_var) -> avid = free_var) free_vars in
-        let code_post = [MOVE (LREFREG (cx, index + 1), REFREG (bx, count))]  (* 자기 자신에 해당하는 closure에서의 위치를 알고 나중에 꽂아넣어야 함? *)
+        let code_post = [MOVE (LREFREG (cx, index + 1), REG cx)]
         in
           (code1 @@ code2 @@ code_post, environ')
     | _ -> (code0, environ)
@@ -472,14 +596,17 @@ and mrule2code environ saddr faddr (M_RULE (patty, expty)) =
 
 
 (* program2code : Mono.program -> Mach.code *)
-and program2code (dlist, et) =
+let program2code (dlist, et) =
   let (code1, environ1) = create_datatype_closures (dlist, et) in
-  let (code2, environ2) = List.fold_left (
+  let closure_count = count_closures (dlist, et) in
+  let code2 = create_closure_space code0 closure_count in
+  let (code3, environ3) = List.fold_left (
     fun (code_acc, environ_acc) dec ->
       let (code_dec, environ_dec) = dec2code environ_acc (labelNewStr "PRDEC_") dec
       in
         (code_acc @@ code_dec, environ_dec)
-  ) (code1, environ1) dlist in
-  let (code3, rvalue) = expty2code environ2 (labelNewStr "PREXP_") et
-  in
-    [LABEL start_label; MOVE (LREG bx, REG sp)] @@ code2 @@ code3 @@ [HALT rvalue; LABEL fail_label; EXCEPTION]
+  ) (code0, environ1) dlist in
+  let (code4, rvalue) = expty2code environ3 (labelNewStr "PREXP_") et
+  in 
+  let (venv1, count1) = environ1 in
+    [LABEL start_label; MOVE (LREG bx, REG sp)] @@ code1 @@ code2 @@ code3 @@ code4 @@ [HALT rvalue; LABEL fail_label; EXCEPTION]
