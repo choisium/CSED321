@@ -445,6 +445,19 @@ and typeDec ctx dec =
 
 (* Convert functions *)
 
+let rec convertTy te ty =
+  match ty with
+    Ast.T_INT -> Core.T_INT
+  | Ast.T_BOOL -> Core.T_BOOL
+  | Ast.T_UNIT -> Core.T_UNIT
+  | Ast.T_CON tycon -> (
+      match Dict.lookup tycon te with
+        Some t -> t
+      | None -> raise TypingError
+    )
+  | Ast.T_PAIR (ty1, ty2) -> Core.T_PAIR (convertTy te ty1, convertTy te ty2)
+  | Ast.T_FUN (ty1, ty2) -> Core.T_FUN (convertTy te ty1, convertTy te ty2)
+
 let rec convertPat ctx pat =
   let (te, ve) = ctx
   (* let (t', ve') = typePat ctx pat
@@ -484,10 +497,15 @@ let rec convertPat ctx pat =
             if Set_type.size tvset = 0
             then (
               let (p', ve') = convertPat ctx p in
-              let Core.PATTY(p'', t1') = p' in
-              if t1 = t1'
+              let Core.PATTY(_, t1') = p' in
+              let s = unify [(t1, t1')] in
+              let p'' = applySubstitutionPatty s p' in
+              let (_, t2'') = applySubstitution s tvset0 t2 in
+              (Core.PATTY(Core.P_VIDP ((vid, Core.CONF), p''), t2''), applySubstitutionVE s ve')
+
+              (* if t1 = t1'
               then (Core.PATTY(Core.P_VIDP ((vid, Core.CONF), p'), t2), ve')
-              else raise TypingError     (***** *)
+              else raise TypingError     **** *)
             )
             else raise TypingError
           )
@@ -500,10 +518,13 @@ let rec convertPat ctx pat =
         let Core.PATTY(_, t2') = p2' in
         (Core.PATTY(Core.P_PAIR(p1', p2'), Core.T_PAIR(t1', t2')), Dict.merge ve1 ve2)
       )
-    (* | Ast.P_TPAT (p, ty) -> (
-        let (p', _) = convertPat ctx p in
-        (p', ve')
-      ) *)
+    | Ast.P_TPAT (p, ty) -> (
+        let (p', ve) = convertPat ctx p in
+        let Core.PATTY(_, ty1) = p' in
+        let ty2 = convertTy te ty in
+        let s = unify [(ty1, ty2)] in
+        (applySubstitutionPatty s p', applySubstitutionVE s ve)
+      )
     | _ -> raise TypingError
 
 let rec convertExp ctx exp =
@@ -530,7 +551,12 @@ let rec convertExp ctx exp =
         | Some ((tvset, t), Core.CONF) -> Core.EXPTY(Core.E_VID (x, Core.CONF), t') *)
         | _ -> raise TypingError
       )
-    | Ast.E_FUN mlist -> convertMlist ctx mlist
+    | Ast.E_FUN mlist -> (
+        let (s, e) = convertMlist ctx mlist
+        in let _ = print_endline ("convertExp E_FUN s - "^s2str s)
+        in (s, e)
+      )
+
     | Ast.E_APP (e1, e2) -> (
         let (s1, e1') = convertExp ctx e1 in
         let Core.EXPTY (e1'', t1) = e1' in
@@ -554,13 +580,18 @@ let rec convertExp ctx exp =
     | Ast.E_PAIR (e1, e2) -> (
         let _ = print_endline ("E_PAIR: "^(Ast_print.exp2str (Ast.E_PAIR (e1, e2)))) in
         let (s1, e1') = convertExp ctx e1 in
-        let Core.EXPTY (e1'', t1) = e1' in
+        let Core.EXPTY (_, t1) = e1' in
+        let ctx' = applySubstitutionCtx s1 ctx in
         let _ = print_endline ("E_PAIR t1: "^(Core_print.ty2str t1)) in
-        let (s2, e2') = convertExp ctx e2 in
-        let Core.EXPTY (e2'', t2) = e2' in
+        let (s2, e2') = convertExp ctx' e2 in
+        let Core.EXPTY (_, t2) = e2' in
         let _ = print_endline ("E_PAIR t1: "^(Core_print.ty2str t1)) in
+        let e1'' = applySubstitutionExpty s2 e1' in
+        let Core.EXPTY (_, t1') = e1'' in
+        (* let e1'' = applySubstitutionExpty s2 e1' in
+        let e2'' = applySubstitutionExpty s1 e2' in *)
         (* (Dict.merge s2 s1, Core.T_PAIR (t1, t2)) *)
-        (Dict.merge s2 s1, Core.EXPTY(Core.E_APP (e1', e2'), Core.T_PAIR (t1, t2)))
+        (Dict.merge s2 s1, Core.EXPTY(Core.E_APP (e1'', e2'), Core.T_PAIR (t1', t2)))
       )
     | Ast.E_LET (d, e) -> (
         let (d', (te', ve')) = convertDec ctx d in
@@ -568,7 +599,14 @@ let rec convertExp ctx exp =
         let Core.EXPTY (_, ty) = e' in
         (s, Core.EXPTY(Core.E_LET (d', e'), ty))
       )
-    (* | Ast.E_TEXP (e, t) -> (convertExp ctx e) *)
+    | Ast.E_TEXP (e, ty) -> (
+        let (s, e') = convertExp ctx e in
+        let Core.EXPTY (_, t1) = e' in
+        let ty' = convertTy te ty in
+        let (_, t2) = applySubstitution s tvset0 ty' in
+        let s' = unify [(t1, t2)] in
+        (s', e')
+      )
     | _ -> raise TypingError
 
 and convertMrule ctx mrule =
@@ -576,6 +614,7 @@ and convertMrule ctx mrule =
   let Ast.M_RULE (pat, exp) = mrule in
   let (pat', ve') = convertPat ctx pat in
   let (s, exp') = convertExp (te, Dict.merge ve ve') exp in
+  let _ = print_endline ("convertMrule s - " ^ s2str s) in
   let Core.EXPTY (_, ty2) = exp' in
   let pat'' = applySubstitutionPatty s pat' in
   let Core.PATTY (_, ty1) = pat'' in
@@ -591,14 +630,12 @@ and convertMlist ctx mlist =
     )
   | head :: tail -> (
       let (s_mlist, mlist', ty_mlist) = List.fold_left (fun (s_acc, mlist_acc, ty_acc) mrule -> 
-        let (s_in, mlist_in, ty_in) = convertMrule ctx mrule in
-        let mlist_acc' = (applySubstitutionMlist s_in mlist_acc) in
-        let (_, ty1) = applySubstitution s_in tvset0 ty_acc in
-        let mlist_in' = (applySubstitutionMlist s_acc mlist_in) in
-        let (_, ty2) = applySubstitution s_acc tvset0 ty_in in
-        let s' = unify [ty1, ty2] in
-        let (_, ty_next) = applySubstitution s' tvset0 ty1 in
-        let mlist_next = applySubstitutionMlist s' (mlist_acc' @ mlist_in') in
+        let ctx' = applySubstitutionCtx s_acc ctx in
+        let (s_in, mlist_in, ty_in) = convertMrule ctx' mrule in
+        let s' = unify [(ty_in, ty_acc)] in
+        let (_, ty_next) = applySubstitution s' tvset0 ty_in in
+        let mlist_next = applySubstitutionMlist s' (mlist_acc @ mlist_in) in
+        let _ = print_endline ("convertMlist " ^ Core_print.ty2str ty_next) in
         (Dict.merge s' (Dict.merge s_in s_acc), mlist_next, ty_next)
       ) (convertMrule ctx head) tail
       in (s_mlist, Core.EXPTY(Core.E_FUN mlist', ty_mlist))
@@ -626,26 +663,39 @@ and convertDec ctx dec =
       let Core.PATTY (p', t1) = p in
       let (s, e) = convertExp (te, Dict.merge ve ve') exp in
       let Core.EXPTY (e', t2) = e in
-      let s' = unify [(t1, t2)] in
-      let _ = print_endline ("convertDec D_REC s- "^ s2str s) in
-      let _ = print_endline ("convertDec D_REC s'- "^ s2str s') in
-      (* let _ = print_endline ("convertDec D_REC ve'_- "^ ctx2str (tenv0, (applySubstitutionVE s' (applySubstitutionVE s ve')))) in *)
-      let ctx' = (tenv0, findClosure ve (applySubstitutionVE (Dict.merge s' s) ve')) in
-      let _ = print_endline ("convertDec D_REC' - "^ ctx2str ctx') in
-      let p' = applySubstitutionPatty s' p in
-      let e' = applySubstitutionExpty s' e
-      in
-        (Core.D_REC (p', e'), ctx')
-
-      (* let (p, ve') = convertPat ctx' pat in
-      let e = convertExp ctx' exp in
-      (Core.D_REC (p, e), ctx') *)
+      match t2 with
+        Core.T_FUN (t1', t2') -> (
+          let s' = unify [(t1, t2)] in
+          let _ = print_endline ("convertDec D_REC s- "^ s2str s) in
+          let _ = print_endline ("convertDec D_REC s'- "^ s2str s') in
+          (* let _ = print_endline ("convertDec D_REC ve'_- "^ ctx2str (tenv0, (applySubstitutionVE s' (applySubstitutionVE s ve')))) in *)
+          let ctx' = (tenv0, findClosure ve (applySubstitutionVE (Dict.merge s' s) ve')) in
+          let _ = print_endline ("convertDec D_REC' - "^ ctx2str ctx') in
+          let p' = applySubstitutionPatty (Dict.merge s' s) p in
+          let e' = applySubstitutionExpty (Dict.merge s' s) e
+          in
+            (Core.D_REC (p', e'), ctx')
+        )
+      | _ -> raise TypingError
     )
-  (* | Ast.D_DTYPE (tycon, conlist) -> (
-      let t = getFreshTyname in
-
-    ) *)
+  | Ast.D_DTYPE (tycon, conlist) -> (
+      let t = Core.T_NAME (getFreshTyname ()) in
+      let te' = Dict.insert (tycon, t) te in
+      let ve' = convertConlist te' t conlist in
+      (Core.D_DTYPE, (te', ve'))
+    )
   | _ -> raise TypingError
+
+and convertConlist te tn conlist =
+  List.fold_left (fun ve_acc conbind -> Dict.merge ve_acc (convertConbind te tn conbind)) venv0 conlist
+
+and convertConbind te tn conbind =
+  match conbind with
+    Ast.CB_VID vid -> Dict.insert (vid, ((tvset0, tn), Core.CON)) venv0
+  | Ast.CB_TVID (vid, ty) -> (
+      let ty' = convertTy te ty in
+      Dict.insert (vid, ((tvset0, Core.T_FUN(ty', tn)), Core.CONF)) venv0
+    )
 
 (* tprogram : Ast.program -> Core.program *)
 let tprogram (dlist, exp) =
